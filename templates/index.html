@@ -1,0 +1,29 @@
+{% extends "base.html" %}                           <!-- Use base.html as the layout -->
+
+{% block title %}Welcome{% endblock %}               <!-- Override <title> to “Welcome” -->
+
+{% block content %}                                  <!-- Begin page-specific content -->
+
+  {% if current_user.is_authenticated %}             <!-- If logged in… -->
+    <h1>Welcome&nbsp;{{ current_user.username }}!</h1> <!--prints the username-->
+    <h2>Your Rooms</h2>                              <!-- Sub-heading -->
+    <ul>
+        {% for r in rooms %}
+        <li>
+            <a href="{{ url_for('view_room', room_id=r._id.room_id) }}">
+            {{ r.room_name }}
+            </a>
+        </li>
+        {% endfor %}
+                                        <!-- End rooms loop -->
+    </ul>
+  {% else %}                                         <!-- If not logged in… -->
+    <h1>Welcome to My Chat App</h1>
+    <p>
+      You’re not logged in.  
+      <a href="{{ url_for('login') }}">Log in</a>     <!-- Link to login -->
+      or 
+      <a href="{{ url_for('signup') }}">Sign up</a>. <!-- Link to signup -->
+    </p>
+  {% endif %}                                        <!-- End authentication check -->
+{% endblock %}                                       <!-- End content block -->

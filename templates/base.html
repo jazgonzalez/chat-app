@@ -1,0 +1,59 @@
+<!DOCTYPE html>                                   
+<html lang="en">                                     
+  <head>
+    <meta charset="UTF-8">                           
+    <title>
+      {% block title %}My Chat App{% endblock %}      <!-- Title block, defaults to “My Chat App” -->
+    </title>
+
+      <!-- preview-bar styling -->
+    <style>
+      .preview-bar{
+          display:flex;
+          gap:6px;
+          margin:6px 0;
+          max-height:90px;          /* keeps bar small            */
+          overflow-x:auto;          /* scroll if many attachments */
+      }
+      .preview-bar img{
+          max-height:80px;
+          border-radius:4px;
+      }
+      .preview-bar audio{
+          height:40px;
+      }
+
+      #imgOverlay{                 /* hidden by default       */
+        display:none;            /*  moved from inline      */
+        position:fixed; inset:0; /*  fills the whole view   */
+        place-content:center;    /*  centers the <img>      */
+        background:rgba(0,0,0,.85);
+        transition:opacity .15s;
+        z-index:1000;
+        opacity:0;               /*  will fade-in           */
+      }
+      #imgOverlay.show{            /*  visible state          */
+          display:grid;
+          opacity:1;
+      }
+
+    </style>
+
+  </head>
+  <body>
+    <nav>                                            
+      <a href="{{ url_for('home') }}">Home</a>       <!-- Link to home route -->
+      {% if current_user.is_authenticated %}         <!-- If user is logged in… -->
+        │ <a href="{{ url_for('create_room') }}">Create Room</a>  <!-- Link to create room -->
+        │ <a href="{{ url_for('logout') }}">Logout</a>            <!-- Link to logout -->
+      {% else %}                                     <!-- Otherwise (not logged in)… -->
+        │ <a href="{{ url_for('login') }}">Login</a>              <!-- Link to login -->
+        │ <a href="{{ url_for('signup') }}">Sign Up</a>           <!-- Link to signup -->
+      {% endif %}                                    <!-- End login-check -->
+    </nav>                                         
+    <hr>                                             
+    <main>                                           
+      {% block content %}{% endblock %}              <!-- Child templates inject here -->
+    </main>
+  </body>
+</html>

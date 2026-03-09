@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Edit Room{% endblock %}
+
+{% block content %}
+  <h1>Edit Room</h1>
+  <h3>{{ message }}</h3>
+
+  <form id="edit-room-form" method="post">
+    <div>
+      <label for="room_name">Room Name:</label>
+      <input type="text" id="room_name" name="room_name" value="{{ room.name }}">
+    </div>
+    <div>
+      <label for="members">Members:</label>
+      <input type="text" id="members" name="members" value="{{ room_members_str }}">
+    </div>
+    <button type="submit">Submit</button>
+  </form>
+
+  <script>
+   // Solo botones no-submit limpian inputs
+  document.querySelectorAll('button:not([type="submit"])').forEach(btn => {
+     btn.addEventListener('click', () => {
+       document.querySelectorAll('input[type="text"], input[type="email"], input[type="password"]')
+              .forEach(input => input.value = '');
+     });
+  });
+
+  </script>
+{% endblock %}

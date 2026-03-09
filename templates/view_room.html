@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+{% block title %}Chat Room: {{ room.name }}{% endblock %}
+
+{% block content %}
+
+
+    <!--leave room button-->
+    <button id="leave_button">Leave Room</button>
+    <h1>{{ room.name }}</h1>
+
+    <!--Edit the room name and members only if you are an admin-->
+   {% if is_room_admin(room._id, current_user.username) %}
+     <a href="{{ url_for('edit_room', room_id=room._id) }}">
+        <button>Edit Room</button>
+    </a>
+    {% endif %}
+
+    <!--BUTTON TO LOAD OLDER MESSAGES-->
+    <button type="button" id="load_older_messages_btn">Load older messages</button>
+
+    <!--print messages-->
+    <div id="messages">
+
+    {% for m in messages %}
+        {% if   m.type == "image" %}
+        <div>
+            <b>{{ m.sender }} [{{ m.created_at }}]:</b><br>
+            <img src="/file/{{ m.file_id }}" style="max-width:200px">
+        </div>
+        {% elif m.type == "audio" %}
+        <div>
+            <b>{{ m.sender }} [{{ m.created_at }}]:</b>
+            <audio controls src="/file/{{ m.file_id }}"></audio>
+        </div>
+        {% else %}
+        <div>
+            <b>{{ m.sender }} [{{ m.created_at }}]:</b>
+            {{ m.text }}
+        </div>
+        {% endif %}
+    {% endfor %}
+    </div>
+
+    <!-- Light-box container (initially hidden) -->
+    <div id="imgOverlay" style="
+            position:fixed; inset:0;
+            place-content:center;
+            background:rgba(0,0,0,.85); z-index:1000;">
+    <img id="overlayImg" style="max-width:90vw; max-height:90vh; cursor:zoom-out">
+    </div>
+
+
+    <!--  PREVIEW BAR  (empty by default) -->
+    <div id="preview" class="preview-bar"></div> 
+
+    <!----------MESSAGE INPUT FORM----------->
+    <form id="message_input_form" style="display:flex;gap:.5rem">
+    <!-- hidden file selector; we click it programmatically -->
+    <input type="file" id="file_input"
+            accept="image/*,audio/*" hidden>           <!-- allowed types -->
+
+    <!-- attachment button (opens the file picker) -->
+    <button type="button" id="attach_btn" title="Attach file">📎</button>
+
+    <!-- normal text box for chat messages -->
+    <input type="text" id="message_input"
+            placeholder="Write a message…"
+            style="flex:1">
+
+    <!-- microphone button (records / stops) -->
+    <button type="button" id="mic_btn" title="Record voice">🎤</button>
+
+    <!-- normal submit button sends text -->
+    <button type="submit">Send</button>
+    </form>
+
+<!--SHOW MEMBERS OF THE CHAT ROOM-->
+<details>
+  <summary>Members ({{ room_members|length }})</summary>
+  <ul>
+    {% for member in room_members %}
+      <li>
+        {{ member._id.username }}
+        {% if member.is_room_admin %}
+          <strong>(admin)</strong>   
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</details>
+
+</body>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+<script>
+    const socket  = io.connect("http://127.0.0.1:5000");
+
+    let pendingFile = null;    // { b64, filename, mime, kind }
+    const previewDiv = document.getElementById('preview');
+    function showPreview() {
+        previewDiv.innerHTML = '';                 // limpia preview previa
+
+        if (!pendingFile) return;
+
+        if (pendingFile.kind === 'image') {        // si es imagen, muestra <img>
+        const img = document.createElement('img');
+        img.src = pendingFile.b64;
+        img.style.maxWidth = '200px';
+        previewDiv.appendChild(img);
+        } 
+        else 
+        {                                   // si es audio, muestra <audio>
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = pendingFile.b64;
+        previewDiv.appendChild(audio);
+        }
+    }
+
+    socket.on('connect',function()
+    {
+      socket.emit('join_room',{
+        username: "{{ username }}",
+        room: "{{ room._id }}"
+      });  
+
+      let message_input = document.getElementById('message_input');
+        document.getElementById('message_input_form').onsubmit = function (e) {
+        e.preventDefault();
+
+        // a) Si hay archivo pendiente → se envía
+        if (pendingFile) {
+            socket.emit('send_file', {
+            room:     "{{ room._id }}",
+            username: "{{ username }}",
+            b64:      pendingFile.b64,
+            filename: pendingFile.filename
+            });
+            pendingFile = null;        // limpia buffer
+            previewDiv.innerHTML = ''; // oculta preview
+            return;                    // no continúes con texto
+        }
+
+        // b) Envío de texto normal
+        const message = message_input.value.trim();
+        if (message.length) {
+            socket.emit('send_message', {
+            username: "{{ username }}",
+            room:     "{{ room._id }}",
+            message:  message
+            });
+            message_input.value = '';
+            message_input.focus();
+        }
+    };
+    });
+
+    let page = 0;           // how many pages we have already pulled
+    document.getElementById('load_older_messages_btn').onclick = () => {
+    page += 1;  // next “page” (0 → 1 → 2 …)
+
+    fetch(`/rooms/{{ room._id }}/messages/?page=` + page)
+        .then(r => r.json())  // parse the JSON list we’ll get
+        .then(list => {
+        /* Server returns newest→oldest; we want to keep
+            the chat order correct, so we prepend *oldest first*. */
+        list.reverse().forEach(renderMessage);  // renderMessage already inserts at the top
+        })
+        .catch(console.error); // easier debug if something goes wrong
+    };
+
+    //add older messages to the top 
+    function prepend_message(message, username, created_at){
+    const div = document.createElement('div');
+    div.innerHTML = `<b>${username}&nbsp;[${created_at}]:&nbsp;</b> ${message}`;
+
+    const container = document.getElementById('messages');
+
+    /* find the first child that is NOT the preview bar */
+    const firstReal = [...container.children]
+                        .find(el => el.id !== "preview");
+
+    if (firstReal){
+        container.insertBefore(div, firstReal);   // insert before real messages
+    }else{
+        container.appendChild(div);               // fallback (no messages yet)
+    }
+    }
+
+
+
+    window.onbeforeunload = function () {
+        socket.emit('leave_room', {
+            username: "{{ username }}",
+            room: "{{ room._id }}"
+        })
+    };
+
+
+    // Store the current user's username 
+    const myName = "{{ username }}";
+    //JOIN ROOM ANNOUNCEMENT
+    socket.on('join_room_announcement', data => {
+        // Create a new <div> element to hold this announcement
+        const div = document.createElement('div');
+
+        // If the announcement’s username matches our own, it means "you joined"
+        if (data.username === myName) {
+        // Set the <div> to show "You joined…" with the timestamp
+        div.innerHTML = `<em>You joined this room at [${data.Timestamp}]</em>`;
+        } else {
+        // Otherwise, show "<username> joined…" for other users
+        div.innerHTML = `<em><b>${data.username}</b> joined at [${data.Timestamp}]</em>`;
+        }
+
+        // Append this announcement <div> to the #messages container in the DOM
+        document.getElementById('messages').appendChild(div);
+    });
+
+    //LEAVE ROOM ANNOUNCEMENT
+    socket.on('leave_room_announcement', data => {
+        // Create a new <div> for the leave announcement
+        const div = document.createElement('div');
+
+        // If it’s the current user leaving, display "You left…"
+        if (data.username === myName) {
+        div.innerHTML = `<em>You left this room at [${data.timestamp}]</em>`;
+        } else {
+        // Otherwise, display "<username> left…"
+        div.innerHTML = `<em><b>${data.username}</b> left at [${data.timestamp}]</em>`;
+        }
+
+        // Append the leave announcement <div> to the #messages container
+        document.getElementById('messages').appendChild(div);
+    });
+
+    document.getElementById('leave_button').addEventListener('click', () => {
+        // a) Avisas al servidor
+        socket.emit('leave_room', {
+        username: "{{ username }}",
+        room:     "{{ room._id }}"
+        });
+        // b) Rediriges al home 
+        window.location.href = "{{ url_for('home') }}";
+    }); 
+
+
+    // ──────────────────ATTACH FILE  (click 📎)  ──────────────────                                      
+    document.getElementById('attach_btn').onclick = () => {            // open file dialog
+    document.getElementById('file_input').click();
+    };
+
+    document.getElementById('file_input').onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        // stores in memory
+        pendingFile = {
+            b64: reader.result,
+            filename: file.name,
+            mime: file.type,
+            kind: file.type.startsWith('image/') ? 'image' : 'audio'
+        };
+        // shows preview
+        showPreview();
+        e.target.value = '';     // allow choosing the same file again
+    };
+    reader.readAsDataURL(file);
+    };
+
+    // ──────────VOICE RECORD  (click 🎤 toggles start/stop)──────────────
+    let recorder, chunks = [];
+    const micBtn = document.getElementById('mic_btn');
+
+    micBtn.onclick = async () => {
+    // If already recording → stop and send
+    if (recorder && recorder.state === "recording") {
+        recorder.stop();                                               // finish recording
+        micBtn.textContent = "🎤";                                      // reset icon
+        return;
+    }
+
+    // First click → ask for microphone permission
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => chunks.push(e.data);             // collect chunks
+
+    recorder.onstop = () => {                                        // when recording stops
+        const blob = new Blob(chunks, { type: 'audio/webm' });         // merge chunks
+        chunks = [];                                                   // reset buffer
+        const reader = new FileReader();
+        
+        reader.onload = () => {
+        pendingFile = {
+            b64: reader.result,
+            filename: "audio.webm",
+            mime: "audio/webm",
+            kind: "audio"
+        };
+        showPreview();
+        };
+        reader.readAsDataURL(blob); // START the reader
+
+    };
+
+    recorder.start();                                                // begin recording
+    micBtn.textContent = "⏹️";                                        // change icon to stop
+    };
+
+    //to make zoom to images in the chat
+    function enableZoom(imgEl){
+    imgEl.style.cursor = "zoom-in";                 // hint to the user
+    imgEl.addEventListener('click', () => {
+        const box   = document.getElementById('imgOverlay');
+        const big   = document.getElementById('overlayImg');
+        big.src     = imgEl.src;                    // same file, larger
+        box.classList.add('show');
+    });
+    }
+
+    function renderMessage(m){
+        const div     = document.createElement('div');
+        const header  = `<b>${m.sender || m.username} [${m.created_at}]:</b>`;
+
+        if (m.type === 'image'){
+            div.innerHTML = `${header}<br>
+                            <img src="/file/${m.file_id}"
+                                style="max-width:200px">`;
+            /* enable zoom after insertion */
+            setTimeout(() =>
+            enableZoom(div.querySelector('img')), 0);
+
+        } else if (m.type === 'audio'){
+            div.innerHTML = `${header}
+                            <audio controls src="/file/${m.file_id}"></audio>`;
+        } else {                                   // plain text
+            div.innerHTML = `${header} ${m.text}`;
+        }
+
+        /* insert ABOVE the preview bar if it exists */
+        const container  = document.getElementById('messages');
+        const firstReal  = [...container.children]
+                            .find(el => el.id !== "preview");
+        firstReal ? container.insertBefore(div, firstReal)
+                : container.appendChild(div);
+    }    
+
+
+
+    document.getElementById('imgOverlay').addEventListener('click', e=>{
+    if(e.target.id === 'imgOverlay' || e.target.id === 'overlayImg'){
+        e.currentTarget.classList.remove('show');  // close on click
+    }
+    });
+    document.addEventListener('keydown', e=>{
+    if(e.key === "Escape") document.getElementById('imgOverlay')
+                                    .classList.remove('show');
+    });
+
+    // ────────── DISPLAY RECEIVED MESSAGE  (image / audio / text)  ─────────────
+    socket.on('receive_message', data => {
+    const div = document.createElement('div');
+
+    // common header with timestamp
+    const header = `<b>${data.username} [${data.created_at}]:</b>`;
+    // ── image preview
+    if (data.type === 'image') 
+    {                
+        div.innerHTML = `${header}<br>
+            <img src="/file/${data.file_id}" style="max-width:200px">`;
+        // enable zoom **after** the element is in the DOM
+        setTimeout(()=> enableZoom(div.querySelector('img')), 0);
+    }
+    // ── audio player 
+    else if (data.type === 'audio') 
+    {         
+        div.innerHTML = `${header}
+            <audio controls src="/file/${data.file_id}"></audio>`;
+    } 
+     // ── plain text
+    else 
+    {                                   
+        div.innerHTML = `${header} ${data.message}`;
+    }
+
+    document.getElementById('messages').appendChild(div);
+    });
+
+// Enable zoom for the images that were rendered on page load
+document.querySelectorAll('#messages img').forEach(enableZoom);
+
+</script>
+
+{% endblock %}
